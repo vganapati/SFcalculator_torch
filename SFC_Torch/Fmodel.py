@@ -18,13 +18,13 @@ import numpy as np
 import torch
 import reciprocalspaceship as rs
 
-from .symmetry import generate_reciprocal_asu, expand_to_p1
-from .mask import reciprocal_grid, rsgrid2realmask, realmask2Fmask
-from .utils import try_gpu, DWF_aniso, DWF_iso, diff_array, asu2HKL, aniso_scaling
-from .utils import vdw_rad_tensor, unitcell_grid_center, bin_by_logarithmic
-from .utils import r_factor, assert_numpy, assert_tensor
-from .packingscore import packingscore_voxelgrid_torch
-from .io import PDBParser
+from SFC_Torch.symmetry import generate_reciprocal_asu, expand_to_p1
+from SFC_Torch.mask import reciprocal_grid, rsgrid2realmask, realmask2Fmask
+from SFC_Torch.utils import try_gpu, DWF_aniso, DWF_iso, diff_array, asu2HKL, aniso_scaling
+from SFC_Torch.utils import vdw_rad_tensor, unitcell_grid_center, bin_by_logarithmic
+from SFC_Torch.utils import r_factor, assert_numpy, assert_tensor
+from SFC_Torch.packingscore import packingscore_voxelgrid_torch
+from SFC_Torch.io import PDBParser
 
 class SFcalculator(object):
     """
@@ -43,7 +43,8 @@ class SFcalculator(object):
         expcolumns:     List[str] = ["FP", "SIGFP"],
         freeflag:       str = "FreeR_flag",
         testset_value:  int = 0,
-        device:         torch.device = try_gpu()
+        device:         torch.device = try_gpu(),
+        openfold_protein: Optional[object] = None
     ) -> None:
         """
         Initialize with necessary reusable information, like spacegroup, unit cell info, HKL_list, et.c.
@@ -83,12 +84,13 @@ class SFcalculator(object):
         testset_value: int, default 0
 
         device: torch.device
+
+        openfold_protein: the output from openfold, replaces certain values in the PDB file (note the PDB file is still used for certain values)
         """
-        
         self.wavelength = wavelength
         self.anomalous = anomalous
         self.device = device
-        self.init_pdb(pdbmodel)
+        self.init_pdb(pdbmodel, openfold_protein)
         if mtzdata is not None:
             self.init_mtz(mtzdata, n_bins, expcolumns, set_experiment, freeflag, testset_value, dmin)
         else:
@@ -98,7 +100,7 @@ class SFcalculator(object):
         self.init_atomic_scattering()
         self.inspected = False
 
-    def init_pdb(self, pdbmodel: str | PDBParser):
+    def init_pdb(self, pdbmodel: str | PDBParser, openfold_protein = None):
         """
         set pdb topology, symmetry operations, unit_cell properties, and initialize model coordinates
         """
@@ -109,15 +111,19 @@ class SFcalculator(object):
         else:
             raise TypeError("pdbmodel should be PDBparser instance or path str to a pdb file!")
         
-        # set molecule related property
-        # Tensor atom's Positions in orthogonal space, [Nc,3]
-        self._atom_pos_orth = assert_tensor(self._pdb.atom_pos, device=self.device, arr_type=torch.float32)
-        # Tensor of anisotropic B Factor in matrix form, [Nc,3,3]
-        self._atom_aniso_uw = assert_tensor(self._pdb.atom_b_aniso, device=self.device, arr_type=torch.float32)
-        # Tensor of isotropic B Factor [B1,B2,...], [Nc]
-        self._atom_b_iso = assert_tensor(self._pdb.atom_b_iso, device=self.device, arr_type=torch.float32)
-        # Tensor of occupancy [P1,P2,....], [Nc]
-        self._atom_occ = assert_tensor(self._pdb.atom_occ, device=self.device, arr_type=torch.float32)
+        if openfold_protein is None:
+            # set molecule related property
+            # Tensor atom's Positions in orthogonal space, [Nc,3]
+            self._atom_pos_orth = assert_tensor(self._pdb.atom_pos, device=self.device, arr_type=torch.float32)
+            # Tensor of anisotropic B Factor in matrix form, [Nc,3,3]
+            self._atom_aniso_uw = assert_tensor(self._pdb.atom_b_aniso, device=self.device, arr_type=torch.float32)
+            # Tensor of isotropic B Factor [B1,B2,...], [Nc]
+            self._atom_b_iso = assert_tensor(self._pdb.atom_b_iso, device=self.device, arr_type=torch.float32)
+            # Tensor of occupancy [P1,P2,....], [Nc]
+            self._atom_occ = assert_tensor(self._pdb.atom_occ, device=self.device, arr_type=torch.float32)
+        else:
+            # COMPLETE
+            pass
 
         if self.anomalous:
             # Try to get the wavelength from PDB remarks
