@@ -121,8 +121,9 @@ class SFcalculator(object):
             self._atom_b_iso = assert_tensor(self._pdb.atom_b_iso, device=self.device, arr_type=torch.float32)
             # Tensor of occupancy [P1,P2,....], [Nc]
             self._atom_occ = assert_tensor(self._pdb.atom_occ, device=self.device, arr_type=torch.float32)
+            breakpoint()
         else:
-            # COMPLETE
+            # XXX COMPLETE
             pass
 
         if self.anomalous:

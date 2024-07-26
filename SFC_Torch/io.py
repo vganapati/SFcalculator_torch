@@ -153,7 +153,7 @@ class PDBParser(object):
     @property
     def sequence(self):
         """
-        Get one code squence
+        Get one code sequence
         """
         seen = set()
         unique_cras = [x for x in self.cra_name if x not in seen and not seen.add(x)]
