@@ -44,7 +44,6 @@ class SFcalculator(object):
         freeflag:       str = "FreeR_flag",
         testset_value:  int = 0,
         device:         torch.device = try_gpu(),
-        openfold_protein: Optional[object] = None
     ) -> None:
         """
         Initialize with necessary reusable information, like spacegroup, unit cell info, HKL_list, et.c.
@@ -84,8 +83,6 @@ class SFcalculator(object):
         testset_value: int, default 0
 
         device: torch.device
-
-        openfold_protein: the output from openfold, replaces certain values in the PDB file (note the PDB file is still used for certain values)
         """
         self.wavelength = wavelength
         self.anomalous = anomalous
@@ -100,7 +97,7 @@ class SFcalculator(object):
         self.init_atomic_scattering()
         self.inspected = False
 
-    def init_pdb(self, pdbmodel: str | PDBParser, openfold_protein = None):
+    def init_pdb(self, pdbmodel: str | PDBParser):
         """
         set pdb topology, symmetry operations, unit_cell properties, and initialize model coordinates
         """
@@ -111,20 +108,15 @@ class SFcalculator(object):
         else:
             raise TypeError("pdbmodel should be PDBparser instance or path str to a pdb file!")
         
-        if openfold_protein is None:
-            # set molecule related property
-            # Tensor atom's Positions in orthogonal space, [Nc,3]
-            self._atom_pos_orth = assert_tensor(self._pdb.atom_pos, device=self.device, arr_type=torch.float32)
-            # Tensor of anisotropic B Factor in matrix form, [Nc,3,3]
-            self._atom_aniso_uw = assert_tensor(self._pdb.atom_b_aniso, device=self.device, arr_type=torch.float32)
-            # Tensor of isotropic B Factor [B1,B2,...], [Nc]
-            self._atom_b_iso = assert_tensor(self._pdb.atom_b_iso, device=self.device, arr_type=torch.float32)
-            # Tensor of occupancy [P1,P2,....], [Nc]
-            self._atom_occ = assert_tensor(self._pdb.atom_occ, device=self.device, arr_type=torch.float32)
-            breakpoint()
-        else:
-            # XXX COMPLETE
-            pass
+        # set molecule related property
+        # Tensor atom's Positions in orthogonal space, [Nc,3]
+        self._atom_pos_orth = assert_tensor(self._pdb.atom_pos, device=self.device, arr_type=torch.float32)
+        # Tensor of anisotropic B Factor in matrix form, [Nc,3,3]
+        self._atom_aniso_uw = assert_tensor(self._pdb.atom_b_aniso, device=self.device, arr_type=torch.float32)
+        # Tensor of isotropic B Factor [B1,B2,...], [Nc]
+        self._atom_b_iso = assert_tensor(self._pdb.atom_b_iso, device=self.device, arr_type=torch.float32)
+        # Tensor of occupancy [P1,P2,....], [Nc]
+        self._atom_occ = assert_tensor(self._pdb.atom_occ, device=self.device, arr_type=torch.float32)
 
         if self.anomalous:
             # Try to get the wavelength from PDB remarks
