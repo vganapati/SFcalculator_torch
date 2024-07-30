@@ -87,7 +87,7 @@ class SFcalculator(object):
         self.wavelength = wavelength
         self.anomalous = anomalous
         self.device = device
-        self.init_pdb(pdbmodel, openfold_protein)
+        self.init_pdb(pdbmodel)
         if mtzdata is not None:
             self.init_mtz(mtzdata, n_bins, expcolumns, set_experiment, freeflag, testset_value, dmin)
         else:
