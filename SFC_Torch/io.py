@@ -10,7 +10,7 @@ import pandas as pd
 from .utils import assert_numpy
 
 
-def hier2array(structure):
+def hier2array(structure, label_seq_ids=None):
     """
     Convert the hierachical gemmi.structure into arrays of info
 
@@ -32,15 +32,19 @@ def hier2array(structure):
         except:
             raise ValueError("Can't read valid model from the input PDB file!")
     j = 0
+    atom_ind = 0
     for chain in model:
         for res in chain:
             for atom in res:
                 # A list of atom name like ['O','C','N','C', ...], [Nc]
                 atom_name.append(atom.element.name)
                 # A list of atom long name like ['A-GLU-5-OD', ...], [Nc]
-                cra_name.append(
-                    chain.name + "-" + str(j) + "-" + res.name + "-" + atom.name
-                )
+                if label_seq_ids is None:
+                    cra_name_j = chain.name + "-" + str(j) + "-" + res.name + "-" + atom.name
+                else:
+                    cra_name_j = chain.name + "-" + str(label_seq_ids[atom_ind]) + "-" + res.name + "-" + atom.name
+                cra_name.append(cra_name_j)
+
                 # A list of atom's Positions in orthogonal space, [Nc,3]
                 atom_pos.append(atom.pos.tolist())
                 # A list of anisotropic B Factor matrix, [Nc,3,3]
@@ -50,7 +54,11 @@ def hier2array(structure):
                 # A list of occupancy [P1,P2,....], [Nc]
                 atom_occ.append(atom.occ)
                 # A list of residue id
-                res_id.append(res.seqid.num)
+                if label_seq_ids is None:
+                    res_id.append(res.seqid.num)
+                else:
+                    res_id.append(label_seq_ids[atom_ind])
+                atom_ind += 1
             j += 1
     atom_pos = np.array(atom_pos)
     atom_b_aniso = np.array(atom_b_aniso)
@@ -115,11 +123,15 @@ class PDBParser(object):
             if data.endswith("pdb"):
                 structure = gemmi.read_pdb(data)
                 self.is_cif = False
+                label_seq_ids = None
             elif data.endswith("cif"):
-                structure = gemmi.make_structure_from_block(gemmi.cif.read(data)[0])
+                cif_block = gemmi.cif.read(data)[0]
+                label_seq_ids = cif_block.find_loop('_atom_site.label_seq_id')
+                structure = gemmi.make_structure_from_block(cif_block)
                 self.is_cif = True
         elif isinstance(data, gemmi.Structure):
             structure = data
+            label_seq_ids = None
             self.is_cif = False
         else:
             raise KeyError(
@@ -133,7 +145,7 @@ class PDBParser(object):
             self.atom_name,
             self.cra_name,
             self.res_id,
-        ) = hier2array(structure)
+        ) = hier2array(structure, label_seq_ids=label_seq_ids)
         try:
             self.spacegroup = gemmi.SpaceGroup(structure.spacegroup_hm)
         except:
