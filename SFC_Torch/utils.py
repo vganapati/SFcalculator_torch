@@ -174,7 +174,6 @@ def DWF_aniso(aniso_uw, orth2frac_tensor, HKL_tensor):
     log_arg = (
         -2.0 * np.pi**2 * torch.einsum("rx,axy,ry->ar", HKL_tensor, Ustar, HKL_tensor)
     )
-    breakpoint()
     DWF_aniso_vec = torch.exp(log_arg)
     return DWF_aniso_vec.type(torch.float32)
 

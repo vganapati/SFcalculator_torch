@@ -43,6 +43,7 @@ class SFcalculator(object):
         expcolumns:     List[str] = ["FP", "SIGFP"],
         freeflag:       str = "FreeR_flag",
         testset_value:  int = 0,
+        random_sample:  bool = False,
         device:         torch.device = try_gpu(),
     ) -> None:
         """
@@ -89,12 +90,12 @@ class SFcalculator(object):
         self.device = device
         self.init_pdb(pdbmodel)
         if mtzdata is not None:
-            self.init_mtz(mtzdata, n_bins, expcolumns, set_experiment, freeflag, testset_value, dmin)
+            self.init_mtz(mtzdata, n_bins, expcolumns, set_experiment, freeflag, testset_value, dmin, random_sample=random_sample)
         else:
             self.init_withoutmtz(dmin, n_bins)
         self._init_spacegroup()
         self._init_cell()
-        self.init_atomic_scattering()
+        self.init_atomic_scattering(miller_indices=self.dr2HKL_array) # self.dr2HKL_array or self.dr2asu_array
         self.inspected = False
 
     def init_pdb(self, pdbmodel: str | PDBParser):
@@ -304,7 +305,7 @@ class SFcalculator(object):
         sym_oped_frac_pos = torch.einsum("oxy,ay->aox", self.R_G_tensor_stack, frac_pos) + self.T_G_tensor_stack
         return sym_oped_frac_pos
     
-    def init_mtz(self, mtzdata, N_bins, expcolumns, set_experiment, freeflag, testset_value, dmin):
+    def init_mtz(self, mtzdata, N_bins, expcolumns, set_experiment, freeflag, testset_value, dmin, random_sample=False, sample_fraction=0.1):
         """
         set mtz file for HKL list, resolution and experimental related properties
         """
@@ -360,13 +361,25 @@ class SFcalculator(object):
             self.dmin = dmin
             self.dHKL = self.dHKL[resol_bool]
             self.HKL_array = self.HKL_array[resol_bool] 
-            
+
+        if random_sample:
+            """Randomly sample the HKLs"""
+            select_bool = np.random.rand(len(self.dHKL)) <= sample_fraction
+            self.dHKL = self.dHKL[select_bool]
+            self.HKL_array = self.HKL_array[select_bool] 
+
         self.Hasu_array = generate_reciprocal_asu(
             self.unit_cell, self.space_group, self.dmin, anomalous=self.anomalous
         )
-        assert (
-            diff_array(self.HKL_array, self.Hasu_array) == set()
-        ), "HKL_array should be equal or subset of the Hasu_array!"
+        # assert (
+        #     diff_array(self.HKL_array, self.Hasu_array) == set()
+        # ), "HKL_array should be equal or subset of the Hasu_array!"
+
+        if diff_array(self.HKL_array, self.Hasu_array) == set():
+            pass
+        else:
+            print("HKL_array should be equal or subset of the Hasu_array!")
+
         self.asu2HKL_index = asu2HKL(self.Hasu_array, self.HKL_array)
         # d*^2 array according to the HKL list, [N]
         self.dr2asu_array = self.unit_cell.calculate_1_d2_array(self.Hasu_array)
@@ -374,9 +387,9 @@ class SFcalculator(object):
         # assign reslution bins
         self.assign_resolution_bins(bins=N_bins)
         if set_experiment:
-            self.set_experiment(mtz_reference, expcolumns, freeflag, testset_value, resol_bool)
+            self.set_experiment(mtz_reference, expcolumns, freeflag, testset_value, resol_bool, select_bool)
 
-    def set_experiment(self, exp_mtz, expcolumns=["FP", "SIGFP"], freeflag="FreeR_flag", testset_value=0, resol_bool=None):
+    def set_experiment(self, exp_mtz, expcolumns=["FP", "SIGFP"], freeflag="FreeR_flag", testset_value=0, resol_bool=None, select_bool=None):
         """
         Set experimental data for refinement,
         including Fo, SigF, free_flag, Outlier
@@ -384,8 +397,16 @@ class SFcalculator(object):
         exp_mtz, rs.Dataset, mtzfile read by reciprocalspaceship
         """
         if resol_bool is None:
-            resol_bool = np.ones_like(self.dHKL, dtype=bool)
-        exp_mtz = exp_mtz[resol_bool].copy()
+            if select_bool is None:
+                exp_mtz = exp_mtz.copy()
+            else:
+                exp_mtz = exp_mtz[select_bool].copy()
+        else:
+            if select_bool is None:
+                exp_mtz = exp_mtz[resol_bool].copy()
+            else:
+                exp_mtz = exp_mtz[resol_bool][select_bool].copy()
+
         try:
             self.Fo = torch.tensor(exp_mtz[expcolumns[0]].to_numpy(), device=self.device).type(
                 torch.float32
@@ -458,7 +479,7 @@ class SFcalculator(object):
             self.HKL_array = None
             self.assign_resolution_bins(n_bins)
 
-    def init_atomic_scattering(self):
+    def init_atomic_scattering(self, miller_indices):
         # A dictionary of atomic structural factor f0_sj of different atom types at different HKL Rupp's Book P280
         # f0_sj = [sum_{i=1}^4 {a_ij*exp(-b_ij* d*^2/4)} ] + c_j
         if self.anomalous:
@@ -470,7 +491,7 @@ class SFcalculator(object):
         for atom_type in self.unique_atom:
             element = gemmi.Element(atom_type)
             f0 = np.array(
-                [element.it92.calculate_sf(dr2 / 4.0) for dr2 in self.dr2asu_array]
+                [element.it92.calculate_sf(dr2 / 4.0) for dr2 in miller_indices]
             )
             if self.anomalous:
                 fp, fpp = gemmi.cromer_liberman(
@@ -618,24 +639,35 @@ class SFcalculator(object):
         if not atoms_occ_tensor is None:
             self.atom_occ = atoms_occ_tensor
 
-        self.Fprotein_asu = F_protein(
-            self.Hasu_array,
-            self.dr2asu_array,
-            self.fullsf_tensor,
-            self.R_G_tensor_stack,
-            self.T_G_tensor_stack,
-            self.orth2frac_tensor,
-            self.atom_pos_frac,
-            self.atom_b_iso,
-            self.atom_aniso_uw,
-            self.atom_occ,
-        )
         if not self.HKL_array is None:
-            self.Fprotein_HKL = self.Fprotein_asu[self.asu2HKL_index]
+            self.Fprotein_HKL = F_protein(
+                self.HKL_array,
+                self.dr2HKL_array,
+                self.fullsf_tensor,
+                self.R_G_tensor_stack,
+                self.T_G_tensor_stack,
+                self.orth2frac_tensor,
+                self.atom_pos_frac,
+                self.atom_b_iso,
+                self.atom_aniso_uw,
+                self.atom_occ,
+            )
             self.Fmask_HKL = torch.zeros_like(self.Fprotein_HKL)
             if Return:
                 return self.Fprotein_HKL
         else:
+            self.Fprotein_asu = F_protein(
+                self.Hasu_array,
+                self.dr2asu_array,
+                self.fullsf_tensor,
+                self.R_G_tensor_stack,
+                self.T_G_tensor_stack,
+                self.orth2frac_tensor,
+                self.atom_pos_frac,
+                self.atom_b_iso,
+                self.atom_aniso_uw,
+                self.atom_occ,
+            )
             self.Fmask_asu = torch.zeros_like(self.Fprotein_asu)
             if Return:
                 return self.Fprotein_asu
@@ -680,14 +712,24 @@ class SFcalculator(object):
             gridsize = self.gridsize
 
         # Shape [N_HKL_p1, 3], [N_HKL_p1,]
-        Hp1_array, Fp1_tensor = expand_to_p1(
-            self.space_group,
-            self.Hasu_array,
-            self.Fprotein_asu,
-            dmin_mask=dmin_mask,
-            unitcell=self.unit_cell,
-            anomalous=self.anomalous,
-        )
+        if self.HKL_array is None:
+            Hp1_array, Fp1_tensor = expand_to_p1(
+                self.space_group,
+                self.Hasu_array,
+                self.Fprotein_asu,
+                dmin_mask=dmin_mask,
+                unitcell=self.unit_cell,
+                anomalous=self.anomalous,
+            )
+        else:
+            Hp1_array, Fp1_tensor = expand_to_p1(
+                self.space_group,
+                self.HKL_array,
+                self.Fprotein_HKL,
+                dmin_mask=dmin_mask,
+                unitcell=self.unit_cell,
+                anomalous=self.anomalous,
+            )            
         rs_grid = reciprocal_grid(Hp1_array, Fp1_tensor, gridsize)
         self.real_grid_mask = rsgrid2realmask(
             rs_grid, solvent_percent=solventpct, exponent=exponent, 
@@ -1453,6 +1495,9 @@ def F_protein(
     atom_aniso_uw,
     atom_occ,
 ):
+    print("Memory allocated before computation:", torch.cuda.memory_allocated())
+    print("Max memory allocated before computation:", torch.cuda.max_memory_allocated())
+
     """
     Calculate Protein Structural Factor from an atomic model
 
@@ -1462,6 +1507,7 @@ def F_protein(
     # G is symmetry operations of the spacegroup and j is the atoms
     # DWF is the Debye-Waller Factor, has isotropic and anisotropic version, based on the PDB file input, Rupp's Book P641
     HKL_tensor = torch.tensor(HKL_array, dtype=torch.float32, device=fullsf_tensor.device)
+    print('shape of HKL_tensor', HKL_tensor.shape)
 
     oc_sf = fullsf_tensor * atom_occ[..., None]  # [N_atom, N_HKLs]
     # DWF calculator
@@ -1491,6 +1537,8 @@ def F_protein(
         dwf_all = torch.where(mask_vec[:, None], dwf_iso, dwf_aniso)
         exp_phase = exp_phase + dwf_all * torch.exp(1j * phase_G)
     F_calc = torch.sum(exp_phase * oc_sf, dim=0)
+    print("Memory allocated after computation:", torch.cuda.memory_allocated())
+    print("Max memory allocated after computation:", torch.cuda.max_memory_allocated())
     return F_calc
 
 

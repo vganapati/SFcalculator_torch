@@ -56,6 +56,9 @@ def voxelvalue_torch_p1(
     sym_oped_atom_pos_orth_incell = asu2p1_torch(
         atom_pos_orth, unit_cell, space_group, incell=True, fractional=False
     )
+
+    print('unitcell_grid_center_orth shape', unitcell_grid_center_orth.shape)
+
     voxel2atom_dist = torch.sqrt(
         torch.sum(
             torch.square(
