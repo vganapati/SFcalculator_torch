@@ -60,6 +60,7 @@ def rsgrid2realmask(rs_grid, solvent_percent=0.50, exponent=50.0, Batch=False):
     """
     real_grid = torch.real(torch.fft.fftn(rs_grid, dim=(-3, -2, -1)))
     real_grid_norm = (real_grid - torch.mean(real_grid)) / torch.std(real_grid)
+    breakpoint()
     if Batch:
         CUTOFF = torch.quantile(real_grid_norm[0], solvent_percent)
     else:

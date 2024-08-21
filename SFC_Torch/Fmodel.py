@@ -11,6 +11,7 @@ Written in PyTorch
 """
 from __future__ import annotations
 
+import warnings
 from typing import Optional, List
 import gemmi
 import time
@@ -305,7 +306,7 @@ class SFcalculator(object):
         sym_oped_frac_pos = torch.einsum("oxy,ay->aox", self.R_G_tensor_stack, frac_pos) + self.T_G_tensor_stack
         return sym_oped_frac_pos
     
-    def init_mtz(self, mtzdata, N_bins, expcolumns, set_experiment, freeflag, testset_value, dmin, random_sample=False, sample_fraction=0.1):
+    def init_mtz(self, mtzdata, N_bins, expcolumns, set_experiment, freeflag, testset_value, dmin, random_sample=False, sample_number=1000):
         """
         set mtz file for HKL list, resolution and experimental related properties
         """
@@ -364,6 +365,7 @@ class SFcalculator(object):
 
         if random_sample:
             """Randomly sample the HKLs"""
+            sample_fraction = sample_number/len(self.dHKL)
             select_bool = np.random.rand(len(self.dHKL)) <= sample_fraction
             self.dHKL = self.dHKL[select_bool]
             self.HKL_array = self.HKL_array[select_bool] 
@@ -378,7 +380,7 @@ class SFcalculator(object):
         if diff_array(self.HKL_array, self.Hasu_array) == set():
             pass
         else:
-            print("HKL_array should be equal or subset of the Hasu_array!")
+            warnings.warn("HKL_array should be equal or subset of the Hasu_array!")
 
         self.asu2HKL_index = asu2HKL(self.Hasu_array, self.HKL_array)
         # d*^2 array according to the HKL list, [N]
@@ -558,14 +560,20 @@ class SFcalculator(object):
         if return_labels:
             return self.bin_labels
 
-    def inspect_data(self, spacing=4.5, sample_rate=3.0, verbose=False):
+    def inspect_data(self, spacing=4.5, sample_rate=3.0, dynamic_spacing=False, target_num_grid=100, verbose=False):
         """
         Do an inspection of data, for hints about
         1. solvent percentage for mask calculation
         2. suitable grid size
+
+        dynamic spacing is used to keep the number of grid points manageable even for large unit cells
         """
         # solvent percentage
         vdw_rad = vdw_rad_tensor(self.atom_name, device=self.device)
+        print('unit_cell is: ', str(self.unit_cell))
+        if dynamic_spacing:
+            spacing = (self.unit_cell.volume/target_num_grid)**(1/3.)
+            print('changed spacing to: ', spacing)
         uc_grid_orth_tensor = unitcell_grid_center(
             self.unit_cell, spacing=spacing, return_tensor=True, device=self.device
         )
