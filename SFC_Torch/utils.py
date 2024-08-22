@@ -17,9 +17,10 @@ __all__ = [
 ]
 
 def try_gpu(i=0):
-    if torch.cuda.device_count() >= i + 1:
-        return torch.device(f"cuda:{i}")
-    return torch.device("cpu")
+    if torch.cuda.is_available():
+      return torch.device(f'cuda:{torch.cuda.current_device()}')
+    else:
+      return torch.device('cpu')
 
 
 def try_all_gpus():

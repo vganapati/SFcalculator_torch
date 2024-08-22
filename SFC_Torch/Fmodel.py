@@ -560,7 +560,7 @@ class SFcalculator(object):
         if return_labels:
             return self.bin_labels
 
-    def inspect_data(self, spacing=4.5, sample_rate=3.0, dynamic_spacing=False, target_num_grid=100, verbose=False):
+    def inspect_data(self, spacing=4.5, sample_rate=3.0, dynamic_spacing=False, target_num_grid=1000, verbose=False):
         """
         Do an inspection of data, for hints about
         1. solvent percentage for mask calculation

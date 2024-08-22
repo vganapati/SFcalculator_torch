@@ -60,11 +60,14 @@ def rsgrid2realmask(rs_grid, solvent_percent=0.50, exponent=50.0, Batch=False):
     """
     real_grid = torch.real(torch.fft.fftn(rs_grid, dim=(-3, -2, -1)))
     real_grid_norm = (real_grid - torch.mean(real_grid)) / torch.std(real_grid)
-    breakpoint()
     if Batch:
         CUTOFF = torch.quantile(real_grid_norm[0], solvent_percent)
     else:
-        CUTOFF = torch.quantile(real_grid_norm, solvent_percent)
+        try:
+            CUTOFF = torch.quantile(real_grid_norm, solvent_percent)
+        except RuntimeError: # memory error
+            print("Downsampling read_grid_norm to compute quantile...")
+            CUTOFF = torch.quantile(real_grid_norm[::2,::2,::2], solvent_percent)
     real_grid_mask = torch.sigmoid((CUTOFF - real_grid_norm) * exponent)
     return real_grid_mask
 
