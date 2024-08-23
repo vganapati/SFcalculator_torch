@@ -851,6 +851,8 @@ class SFcalculator(object):
 
             kmasks.append(kmask.requires_grad_(requires_grad))
             kisos.append(kiso.requires_grad_(requires_grad))
+        if len(kmasks) != 10:
+            breakpoint()
         return kmasks, kisos
 
     def _init_uaniso(self, requires_grad=True):
@@ -865,19 +867,22 @@ class SFcalculator(object):
             index_i = (self.bins == bin_i) & (~self.free_flag) & (~self.Outlier)
             s = self.HKL_array[index_i]
             V = np.concatenate([s**2, 2 * s[:, [0, 2, 1]] * s[:, [1, 0, 2]]], axis=-1)
-            Z = assert_numpy(
-                torch.log(
-                    self.Fo[index_i]
-                    / (
-                        self.kisos[bin_i]
-                        * torch.abs(
-                            self.Fprotein_HKL[index_i]
-                            + self.kmasks[bin_i] * self.Fmask_HKL[index_i]
+            try:
+                Z = assert_numpy(
+                    torch.log(
+                        self.Fo[index_i]
+                        / (
+                            self.kisos[bin_i]
+                            * torch.abs(
+                                self.Fprotein_HKL[index_i]
+                                + self.kmasks[bin_i] * self.Fmask_HKL[index_i]
+                            )
                         )
                     )
+                    / (2.0 * np.pi**2)
                 )
-                / (2.0 * np.pi**2)
-            )
+            except IndexError:
+                breakpoint()
             M = V.T @ V  # M = np.einsum("ki,kj->ij", V, V)
             b = -np.sum(Z * V.T, axis=-1)
             U = np.linalg.inv(M) @ b
