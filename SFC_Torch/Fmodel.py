@@ -852,7 +852,8 @@ class SFcalculator(object):
             kmasks.append(kmask.requires_grad_(requires_grad))
             kisos.append(kiso.requires_grad_(requires_grad))
         if len(kmasks) != 10:
-            breakpoint()
+            print('XXXXX')
+            print(np.sort(np.unique(self.bins)))
         return kmasks, kisos
 
     def _init_uaniso(self, requires_grad=True):
@@ -863,7 +864,7 @@ class SFcalculator(object):
         Note: Only work when you have mtz data, self.Fo
         """
         uanisos = []
-        for bin_i in np.sort(np.unique(self.bins)):
+        for ind, bin_i in enumerate(np.sort(np.unique(self.bins))):
             index_i = (self.bins == bin_i) & (~self.free_flag) & (~self.Outlier)
             s = self.HKL_array[index_i]
             V = np.concatenate([s**2, 2 * s[:, [0, 2, 1]] * s[:, [1, 0, 2]]], axis=-1)
@@ -872,10 +873,10 @@ class SFcalculator(object):
                     torch.log(
                         self.Fo[index_i]
                         / (
-                            self.kisos[bin_i]
+                            self.kisos[ind]
                             * torch.abs(
                                 self.Fprotein_HKL[index_i]
-                                + self.kmasks[bin_i] * self.Fmask_HKL[index_i]
+                                + self.kmasks[ind] * self.Fmask_HKL[index_i]
                             )
                         )
                     )
