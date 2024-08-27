@@ -369,6 +369,8 @@ class SFcalculator(object):
             select_bool = np.random.rand(len(self.dHKL)) <= sample_fraction
             self.dHKL = self.dHKL[select_bool]
             self.HKL_array = self.HKL_array[select_bool] 
+        else:
+            select_bool = None
 
         self.Hasu_array = generate_reciprocal_asu(
             self.unit_cell, self.space_group, self.dmin, anomalous=self.anomalous
@@ -779,7 +781,9 @@ class SFcalculator(object):
         us = torch.abs(Fprotein_HKL).pow(2)
         Is = self.Fo.pow(2)
 
-        for bin_i in np.sort(np.unique(self.bins)):
+        self.unique_bins = np.sort(np.unique(self.bins))
+        self.unique_bin_to_ind = {bin:ind for ind,bin in enumerate(self.unique_bins)}
+        for bin_i in self.unique_bins:
             index_i = (~self.free_flag) & (self.bins == bin_i) & (~self.Outlier)
 
             C2 = torch.sum(ws[index_i] * Is[index_i])
@@ -851,9 +855,6 @@ class SFcalculator(object):
 
             kmasks.append(kmask.requires_grad_(requires_grad))
             kisos.append(kiso.requires_grad_(requires_grad))
-        if len(kmasks) != 10:
-            print('XXXXX')
-            print(np.sort(np.unique(self.bins)))
         return kmasks, kisos
 
     def _init_uaniso(self, requires_grad=True):
@@ -864,7 +865,7 @@ class SFcalculator(object):
         Note: Only work when you have mtz data, self.Fo
         """
         uanisos = []
-        for ind, bin_i in enumerate(np.sort(np.unique(self.bins))):
+        for bin_i in self.unique_bins:
             index_i = (self.bins == bin_i) & (~self.free_flag) & (~self.Outlier)
             s = self.HKL_array[index_i]
             V = np.concatenate([s**2, 2 * s[:, [0, 2, 1]] * s[:, [1, 0, 2]]], axis=-1)
@@ -873,10 +874,10 @@ class SFcalculator(object):
                     torch.log(
                         self.Fo[index_i]
                         / (
-                            self.kisos[ind]
+                            self.kisos[self.unique_bin_to_ind[bin_i]]
                             * torch.abs(
                                 self.Fprotein_HKL[index_i]
-                                + self.kmasks[ind] * self.Fmask_HKL[index_i]
+                                + self.kmasks[self.unique_bin_to_ind[bin_i]] * self.Fmask_HKL[index_i]
                             )
                         )
                     )
@@ -1042,7 +1043,7 @@ class SFcalculator(object):
     
     def unfreeze_scales(self):
         """
-        Do not require grad on scales
+        Do require grad on scales
         """
         self.kmasks = [kmask.requires_grad_(True) for kmask in self.kmasks]
         self.kisos = [kiso.requires_grad_(True) for kiso in self.kisos]
@@ -1078,7 +1079,7 @@ class SFcalculator(object):
                 adam.step()
                 return loss, r_work, r_free
 
-            params = [self.kmasks[bin_i], self.kisos[bin_i], self.uanisos[bin_i]]
+            params = [self.kmasks[self.unique_bin_to_ind[bin_i]], self.kisos[self.unique_bin_to_ind[bin_i]], self.uanisos[self.unique_bin_to_ind[bin_i]]]
             adam = torch.optim.Adam(params, lr=lr)
             for _ in range(n_steps):
                 start_time = time.time()
@@ -1122,11 +1123,14 @@ class SFcalculator(object):
         if scale_mode:
             Fmask = Fmask.detach()
             Fprotein = Fprotein.detach()
-        scaled_fmask_i = Fmask[index_i] * self.kmasks[bin_i]
+        try:
+            scaled_fmask_i = Fmask[index_i] * self.kmasks[self.unique_bin_to_ind[bin_i]]
+        except IndexError:
+            breakpoint()
         fmodel_i = (
-            self.kisos[bin_i]
+            self.kisos[self.unique_bin_to_ind[bin_i]]
             * aniso_scaling(
-                self.uanisos[bin_i],
+                self.uanisos[self.unique_bin_to_ind[bin_i]],
                 self.reciprocal_cell_paras,
                 HKL_array[index_i],
             )
@@ -1247,9 +1251,13 @@ class SFcalculator(object):
             )
             N_work = counts[i] - np.sum(self.free_flag[index_i])
             N_free = np.sum(self.free_flag[index_i])
-            print(
-                f"{self.bin_labels[i]:<15} {N_work:7d} {N_free:7d} {assert_numpy(torch.mean(self.Fo[index_i])):7.1f} {assert_numpy(torch.mean(torch.abs(ftotal[index_i]))):9.1f} {assert_numpy(r_worki):7.3f} {assert_numpy(r_freei):7.3f} {assert_numpy(self.kmasks[i]):7.3f} {assert_numpy(self.kisos[i]):7.3f}"
-            )
+
+            try:
+                print(
+                    f"{self.bin_labels[i]:<15} {N_work:7d} {N_free:7d} {assert_numpy(torch.mean(self.Fo[index_i])):7.1f} {assert_numpy(torch.mean(torch.abs(ftotal[index_i]))):9.1f} {assert_numpy(r_worki):7.3f} {assert_numpy(r_freei):7.3f} {assert_numpy(self.kmasks[self.unique_bin_to_ind[i]]):7.3f} {assert_numpy(self.kisos[self.unique_bin_to_ind[i]]):7.3f}"
+                )
+            except KeyError:
+                pass
         self.r_work, self.r_free = self.get_rfactors(ftotal=ftotal)
         print(f"r_work: {assert_numpy(self.r_work):<7.3f}")
         print(f"r_free: {assert_numpy(self.r_free):<7.3f}")
@@ -1398,11 +1406,11 @@ class SFcalculator(object):
         """
         calculate ftotal for bin i
         """
-        scaled_fmask_i = Fmask[:, index_i] * self.kmasks[bin_i]
+        scaled_fmask_i = Fmask[:, index_i] * self.kmasks[self.unique_bin_to_ind[bin_i]]
         fmodel_i = (
-            self.kisos[bin_i]
+            self.kisos[self.unique_bin_to_ind[bin_i]]
             * aniso_scaling(
-                self.uanisos[bin_i],
+                self.uanisos[self.unique_bin_to_ind[bin_i]],
                 self.reciprocal_cell_paras,
                 HKL_array[index_i],
             )
