@@ -86,6 +86,9 @@ class SFcalculator(object):
 
         device: torch.device
         """
+        print(f'PDBModel is {pdbmodel}')
+        self.pdbmodel = pdbmodel
+        
         self.wavelength = wavelength
         self.anomalous = anomalous
         self.device = device
@@ -1125,7 +1128,7 @@ class SFcalculator(object):
             Fprotein = Fprotein.detach()
         try:
             scaled_fmask_i = Fmask[index_i] * self.kmasks[self.unique_bin_to_ind[bin_i]]
-        except IndexError:
+        except KeyError:
             breakpoint()
         fmodel_i = (
             self.kisos[self.unique_bin_to_ind[bin_i]]
