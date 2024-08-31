@@ -1107,14 +1107,15 @@ class SFcalculator(object):
             index_i = (self.bins == bin_i) & (~self.Outlier)
             fo_i = self.Fo[index_i]
             free_flagi = self.free_flag[index_i]
-            adam_opt_i(
-                bin_i,
-                index_i,
-                lr=lr,
-                n_steps=n_steps,
-                sub_ratio=sub_ratio,
-                verbose=verbose,
-            )
+            if np.any(index_i):
+                adam_opt_i(
+                    bin_i,
+                    index_i,
+                    lr=lr,
+                    n_steps=n_steps,
+                    sub_ratio=sub_ratio,
+                    verbose=verbose,
+                )
         self.freeze_scales()
         Fmodel = self.calc_ftotal()
         self.r_work, self.r_free = self.get_rfactors(ftotal=Fmodel)
@@ -1166,9 +1167,10 @@ class SFcalculator(object):
             ftotal_hkl = torch.zeros_like(self.Fprotein_HKL)
             for bin_i in bins:
                 index_i = self.bins == bin_i
-                ftotal_hkl[index_i] = self._calc_ftotal_bini(
-                    bin_i, index_i, self.HKL_array, self.Fprotein_HKL, self.Fmask_HKL, scale_mode=scale_mode
-                )
+                if np.any(index_i):
+                    ftotal_hkl[index_i] = self._calc_ftotal_bini(
+                        bin_i, index_i, self.HKL_array, self.Fprotein_HKL, self.Fmask_HKL, scale_mode=scale_mode
+                    )
             self.Ftotal_HKL = ftotal_hkl
             if Return:
                 return ftotal_hkl
@@ -1176,9 +1178,10 @@ class SFcalculator(object):
             ftotal_asu = torch.zeros_like(self.Fprotein_asu)
             for bin_i in bins:
                 index_i = self.bins == bin_i
-                ftotal_asu[index_i] = self._calc_ftotal_bini(
-                    bin_i, index_i, self.Hasu_array, self.Fprotein_asu, self.Fmask_asu, scale_mode=scale_mode
-                )
+                if np.any(index_i):
+                    ftotal_asu[index_i] = self._calc_ftotal_bini(
+                        bin_i, index_i, self.Hasu_array, self.Fprotein_asu, self.Fmask_asu, scale_mode=scale_mode
+                    )
             self.Ftotal_asu = ftotal_asu
             if Return:
                 return ftotal_asu
@@ -1444,13 +1447,14 @@ class SFcalculator(object):
             ftotal_hkl_batch = torch.zeros_like(self.Fprotein_HKL_batch)
             for bin_i in bins:
                 index_i = self.bins == bin_i
-                ftotal_hkl_batch[:, index_i] = self._calc_ftotal_batch_bini(
-                    bin_i,
-                    index_i,
-                    self.HKL_array,
-                    self.Fprotein_HKL_batch,
-                    self.Fmask_HKL_batch,
-                )
+                if np.any(index_i):
+                    ftotal_hkl_batch[:, index_i] = self._calc_ftotal_batch_bini(
+                        bin_i,
+                        index_i,
+                        self.HKL_array,
+                        self.Fprotein_HKL_batch,
+                        self.Fmask_HKL_batch,
+                    )
             self.Ftotal_HKL_batch = ftotal_hkl_batch
             if Return:
                 return ftotal_hkl_batch
@@ -1458,9 +1462,10 @@ class SFcalculator(object):
             ftotal_asu_batch = torch.zeros_like(self.Fprotein_asu_batch)
             for bin_i in bins:
                 index_i = self.bins == bin_i
-                ftotal_asu_batch[index_i] = self._calc_ftotal_batch_bini(
-                    bin_i, index_i, self.Hasu_array, self.Fprotein_asu_batch, self.Fmask_asu_batch
-                )
+                if np.any(index_i):
+                    ftotal_asu_batch[index_i] = self._calc_ftotal_batch_bini(
+                        bin_i, index_i, self.Hasu_array, self.Fprotein_asu_batch, self.Fmask_asu_batch
+                    )
             self.Ftotal_asu_batch = ftotal_asu_batch
             if Return:
                 return ftotal_asu_batch
