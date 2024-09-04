@@ -13,6 +13,7 @@ def voxelvalue_torch_p1(
     s=10.0,
     binary=True,
     cutoff=0.1,
+    chunk_size = 10000,
 ):
     """
     Differentiably render atom coordinates into real space grid map value
@@ -53,26 +54,34 @@ def voxelvalue_torch_p1(
     -------
     voxel_value, tensor [N_grid,]
     """
+
     sym_oped_atom_pos_orth_incell = asu2p1_torch(
         atom_pos_orth, unit_cell, space_group, incell=True, fractional=False
     )
 
     print('unitcell_grid_center_orth shape', unitcell_grid_center_orth.shape)
+    print('sym_oped_atom_pos_orth_incell', sym_oped_atom_pos_orth_incell.shape)
+    print((unitcell_grid_center_orth[:, None, None, :] - sym_oped_atom_pos_orth_incell[None, ...]).shape)
 
-    voxel2atom_dist = torch.sqrt(
-        torch.sum(
-            torch.square(
-                unitcell_grid_center_orth[:, None, None, :]
-                - sym_oped_atom_pos_orth_incell[None, ...]
-            ),
-            dim=-1,
+    for chunk_start in range(int(np.ceil(sym_oped_atom_pos_orth_incell.shape[0]/chunk_size))):
+        voxel2atom_dist = torch.sqrt(
+            torch.sum(
+                torch.square(
+                    unitcell_grid_center_orth[:, None, None, :]
+                    - sym_oped_atom_pos_orth_incell[chunk_start*chunk_size:(chunk_start+1)*chunk_size][None, ...]
+                ),
+                dim=-1,
+            )
         )
-    )
-    sigmoid_value = 1.0 / (
-        1.0 + torch.exp(s * (voxel2atom_dist - vdw_rad_tensor[:, None]))
-    )
+        sigmoid_value = 1.0 / (
+            1.0 + torch.exp(s * (voxel2atom_dist - vdw_rad_tensor[chunk_start*chunk_size:(chunk_start+1)*chunk_size, None]))
+        )
 
-    voxel_value = torch.sum(sigmoid_value, dim=1)
+        if chunk_start == 0:
+            voxel_value = torch.sum(sigmoid_value, dim=1)
+        else:
+            voxel_value += torch.sum(sigmoid_value, dim=1)
+
     if binary:
         return torch.sum(torch.where(voxel_value > cutoff, 1.0, 0.0), dim=-1)
     else:
