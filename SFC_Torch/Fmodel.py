@@ -652,23 +652,7 @@ class SFcalculator(object):
         if not atoms_occ_tensor is None:
             self.atom_occ = atoms_occ_tensor
 
-        if not self.HKL_array is None:
-            self.Fprotein_HKL = F_protein(
-                self.HKL_array,
-                self.dr2HKL_array,
-                self.fullsf_tensor,
-                self.R_G_tensor_stack,
-                self.T_G_tensor_stack,
-                self.orth2frac_tensor,
-                self.atom_pos_frac,
-                self.atom_b_iso,
-                self.atom_aniso_uw,
-                self.atom_occ,
-            )
-            self.Fmask_HKL = torch.zeros_like(self.Fprotein_HKL)
-            if Return:
-                return self.Fprotein_HKL
-        else:
+        if self.HKL_array is None:
             self.Fprotein_asu = F_protein(
                 self.Hasu_array,
                 self.dr2asu_array,
@@ -681,9 +665,27 @@ class SFcalculator(object):
                 self.atom_aniso_uw,
                 self.atom_occ,
             )
+
             self.Fmask_asu = torch.zeros_like(self.Fprotein_asu)
             if Return:
                 return self.Fprotein_asu
+        else:
+            self.Fprotein_HKL = F_protein(
+                self.HKL_array,
+                self.dr2HKL_array,
+                self.fullsf_tensor,
+                self.R_G_tensor_stack,
+                self.T_G_tensor_stack,
+                self.orth2frac_tensor,
+                self.atom_pos_frac,
+                self.atom_b_iso,
+                self.atom_aniso_uw,
+                self.atom_occ,
+            )
+
+            self.Fmask_HKL = torch.zeros_like(self.Fprotein_HKL)
+            if Return:
+                return self.Fprotein_HKL
 
     def calc_fsolvent(
         self,
@@ -872,22 +874,21 @@ class SFcalculator(object):
             index_i = (self.bins == bin_i) & (~self.free_flag) & (~self.Outlier)
             s = self.HKL_array[index_i]
             V = np.concatenate([s**2, 2 * s[:, [0, 2, 1]] * s[:, [1, 0, 2]]], axis=-1)
-            try:
-                Z = assert_numpy(
-                    torch.log(
-                        self.Fo[index_i]
-                        / (
-                            self.kisos[self.unique_bin_to_ind[bin_i]]
-                            * torch.abs(
-                                self.Fprotein_HKL[index_i]
-                                + self.kmasks[self.unique_bin_to_ind[bin_i]] * self.Fmask_HKL[index_i]
-                            )
+
+            Z = assert_numpy(
+                torch.log(
+                    self.Fo[index_i]
+                    / (
+                        self.kisos[self.unique_bin_to_ind[bin_i]]
+                        * torch.abs(
+                            self.Fprotein_HKL[index_i]
+                            + self.kmasks[self.unique_bin_to_ind[bin_i]] * self.Fmask_HKL[index_i]
                         )
                     )
-                    / (2.0 * np.pi**2)
                 )
-            except IndexError:
-                breakpoint()
+                / (2.0 * np.pi**2)
+            )
+
             M = V.T @ V  # M = np.einsum("ki,kj->ij", V, V)
             b = -np.sum(Z * V.T, axis=-1)
             U = np.linalg.inv(M) @ b
@@ -1127,10 +1128,9 @@ class SFcalculator(object):
         if scale_mode:
             Fmask = Fmask.detach()
             Fprotein = Fprotein.detach()
-        try:
-            scaled_fmask_i = Fmask[index_i] * self.kmasks[self.unique_bin_to_ind[bin_i]]
-        except KeyError:
-            breakpoint()
+
+        scaled_fmask_i = Fmask[index_i] * self.kmasks[self.unique_bin_to_ind[bin_i]]
+
         fmodel_i = (
             self.kisos[self.unique_bin_to_ind[bin_i]]
             * aniso_scaling(
@@ -1258,12 +1258,7 @@ class SFcalculator(object):
             N_work = counts[i] - np.sum(self.free_flag[index_i])
             N_free = np.sum(self.free_flag[index_i])
 
-            try:
-                print(
-                    f"{self.bin_labels[i]:<15} {N_work:7d} {N_free:7d} {assert_numpy(torch.mean(self.Fo[index_i])):7.1f} {assert_numpy(torch.mean(torch.abs(ftotal[index_i]))):9.1f} {assert_numpy(r_worki):7.3f} {assert_numpy(r_freei):7.3f} {assert_numpy(self.kmasks[self.unique_bin_to_ind[i]]):7.3f} {assert_numpy(self.kisos[self.unique_bin_to_ind[i]]):7.3f}"
-                )
-            except KeyError:
-                pass
+
         self.r_work, self.r_free = self.get_rfactors(ftotal=ftotal)
         print(f"r_work: {assert_numpy(self.r_work):<7.3f}")
         print(f"r_free: {assert_numpy(self.r_free):<7.3f}")
@@ -1490,8 +1485,9 @@ class SFcalculator(object):
         dataset["L"] = HKL_out[:, 2]
         dataset["FMODEL"] = assert_numpy(F_out_mag)
         dataset["PHIFMODEL"] = assert_numpy(F_out_phase)
-        dataset["FMODEL_COMPLEX"] = assert_numpy(F_out)
+
         dataset.set_index(["H", "K", "L"], inplace=True)
+        dataset.infer_mtz_dtypes(inplace=True)
         return dataset
     
     def savePDB(self, outname: str):
@@ -1524,6 +1520,7 @@ def F_protein(
     atom_b_iso,
     atom_aniso_uw,
     atom_occ,
+    chunk_size=10000, # chunks in the n_atom dimension
 ):
     print("Memory allocated before computation:", torch.cuda.memory_allocated())
     print("Max memory allocated before computation:", torch.cuda.max_memory_allocated())
@@ -1539,34 +1536,39 @@ def F_protein(
     HKL_tensor = torch.tensor(HKL_array, dtype=torch.float32, device=fullsf_tensor.device)
     print('shape of HKL_tensor', HKL_tensor.shape)
 
-    oc_sf = fullsf_tensor * atom_occ[..., None]  # [N_atom, N_HKLs]
-    # DWF calculator
-    dwf_iso = DWF_iso(atom_b_iso, dr2_array)  # [N_atoms, N_HKLs]
-    mask_vec = torch.all(torch.all(atom_aniso_uw == 0.0, dim=-1), dim=-1)
-    # Vectorized phase calculation
-    # sym_oped_pos_frac = (
-    #     torch.permute(torch.tensordot(R_G_tensor_stack, atom_pos_frac.T, 1), [2, 0, 1])
-    #     + T_G_tensor_stack
-    # )
-    # Shape [N_atom, N_op, N_dim=3]
-    sym_oped_pos_frac = (
-        torch.einsum("oxy,ay->aox", R_G_tensor_stack, atom_pos_frac) + T_G_tensor_stack
-    )
-    sym_oped_hkl = torch.einsum("rx,oxy->roy", HKL_tensor, R_G_tensor_stack)
-    exp_phase = 0.0
-    # Loop through symmetry operations instead of fully vectorization, to reduce the memory cost
-    for i in range(sym_oped_pos_frac.size(dim=1)):
-        phase_G = (
-            2
-            * np.pi
-            * torch.einsum("ax,rx->ar", sym_oped_pos_frac[:, i, :], HKL_tensor)
-        )  # [N_atom, N_HKLs]
-        dwf_aniso = DWF_aniso(
-            atom_aniso_uw, orth2frac_tensor, sym_oped_hkl[:, i, :]
-        )  # [N_atom, N_HKLs]
-        dwf_all = torch.where(mask_vec[:, None], dwf_iso, dwf_aniso)
-        exp_phase = exp_phase + dwf_all * torch.exp(1j * phase_G)
-    F_calc = torch.sum(exp_phase * oc_sf, dim=0)
+    for chunk_start in range(int(np.ceil(atom_occ.shape[0]/chunk_size))):
+        oc_sf = fullsf_tensor[chunk_start*chunk_size:(chunk_start+1)*chunk_size] * atom_occ[chunk_start*chunk_size:(chunk_start+1)*chunk_size][..., None]  # [N_atom, N_HKLs]
+        # DWF calculator
+        dwf_iso = DWF_iso(atom_b_iso[chunk_start*chunk_size:(chunk_start+1)*chunk_size], dr2_array)  # [N_atoms, N_HKLs]
+        mask_vec = torch.all(torch.all(atom_aniso_uw[chunk_start*chunk_size:(chunk_start+1)*chunk_size] == 0.0, dim=-1), dim=-1)
+        # Vectorized phase calculation
+        # sym_oped_pos_frac = (
+        #     torch.permute(torch.tensordot(R_G_tensor_stack, atom_pos_frac.T, 1), [2, 0, 1])
+        #     + T_G_tensor_stack
+        # )
+        # Shape [N_atom, N_op, N_dim=3]
+        sym_oped_pos_frac = (
+            torch.einsum("oxy,ay->aox", R_G_tensor_stack, atom_pos_frac[chunk_start*chunk_size:(chunk_start+1)*chunk_size]) + T_G_tensor_stack
+        )
+        sym_oped_hkl = torch.einsum("rx,oxy->roy", HKL_tensor, R_G_tensor_stack)
+        exp_phase = 0.0
+        # Loop through symmetry operations instead of fully vectorization, to reduce the memory cost
+        for i in range(sym_oped_pos_frac.size(dim=1)):
+            phase_G = (
+                2
+                * np.pi
+                * torch.einsum("ax,rx->ar", sym_oped_pos_frac[:, i, :], HKL_tensor)
+            )  # [N_atom, N_HKLs]
+            dwf_aniso = DWF_aniso(
+                atom_aniso_uw[chunk_start*chunk_size:(chunk_start+1)*chunk_size], orth2frac_tensor, sym_oped_hkl[:, i, :]
+            )  # [N_atom, N_HKLs]
+            dwf_all = torch.where(mask_vec[:, None], dwf_iso, dwf_aniso)
+            exp_phase = exp_phase + dwf_all * torch.exp(1j * phase_G)
+        
+        if chunk_start == 0:
+            F_calc = torch.sum(exp_phase * oc_sf, dim=0)
+        else:
+            F_calc += torch.sum(exp_phase * oc_sf, dim=0)
     print("Memory allocated after computation:", torch.cuda.memory_allocated())
     print("Max memory allocated after computation:", torch.cuda.max_memory_allocated())
     return F_calc
