@@ -1520,7 +1520,7 @@ def F_protein(
     atom_b_iso,
     atom_aniso_uw,
     atom_occ,
-    chunk_size=10000, # chunks in the n_atom dimension
+    chunk_size=5000, # chunks in the n_atom dimension
 ):
     print("Memory allocated before computation:", torch.cuda.memory_allocated())
     print("Max memory allocated before computation:", torch.cuda.max_memory_allocated())
@@ -1563,12 +1563,14 @@ def F_protein(
                 atom_aniso_uw[chunk_start*chunk_size:(chunk_start+1)*chunk_size], orth2frac_tensor, sym_oped_hkl[:, i, :]
             )  # [N_atom, N_HKLs]
             dwf_all = torch.where(mask_vec[:, None], dwf_iso, dwf_aniso)
+
             exp_phase = exp_phase + dwf_all * torch.exp(1j * phase_G)
-        
+        print("exp_phase shape: ", exp_phase.shape)
         if chunk_start == 0:
             F_calc = torch.sum(exp_phase * oc_sf, dim=0)
         else:
             F_calc += torch.sum(exp_phase * oc_sf, dim=0)
+    
     print("Memory allocated after computation:", torch.cuda.memory_allocated())
     print("Max memory allocated after computation:", torch.cuda.max_memory_allocated())
     return F_calc

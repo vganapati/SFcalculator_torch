@@ -13,7 +13,7 @@ def voxelvalue_torch_p1(
     s=10.0,
     binary=True,
     cutoff=0.1,
-    chunk_size = 10000,
+    chunk_size=5000,
 ):
     """
     Differentiably render atom coordinates into real space grid map value
@@ -61,7 +61,7 @@ def voxelvalue_torch_p1(
 
     print('unitcell_grid_center_orth shape', unitcell_grid_center_orth.shape)
     print('sym_oped_atom_pos_orth_incell', sym_oped_atom_pos_orth_incell.shape)
-    print((unitcell_grid_center_orth[:, None, None, :] - sym_oped_atom_pos_orth_incell[None, ...]).shape)
+    # print((unitcell_grid_center_orth[:, None, None, :] - sym_oped_atom_pos_orth_incell[None, ...]).shape)
 
     for chunk_start in range(int(np.ceil(sym_oped_atom_pos_orth_incell.shape[0]/chunk_size))):
         voxel2atom_dist = torch.sqrt(
