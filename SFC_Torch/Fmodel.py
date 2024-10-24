@@ -746,6 +746,7 @@ class SFcalculator(object):
                 anomalous=self.anomalous,
             )            
         rs_grid = reciprocal_grid(Hp1_array, Fp1_tensor, gridsize)
+        print('rs_grid: ', rs_grid.shape)
         self.real_grid_mask = rsgrid2realmask(
             rs_grid, solvent_percent=solventpct, exponent=exponent, 
         )  # type: ignore
@@ -1537,10 +1538,14 @@ def F_protein(
     print('shape of HKL_tensor', HKL_tensor.shape)
 
     for chunk_start in range(int(np.ceil(atom_occ.shape[0]/chunk_size))):
+        print("chunk_start: ", chunk_start)
         oc_sf = fullsf_tensor[chunk_start*chunk_size:(chunk_start+1)*chunk_size] * atom_occ[chunk_start*chunk_size:(chunk_start+1)*chunk_size][..., None]  # [N_atom, N_HKLs]
+        print("oc_sf: ", oc_sf.shape)
         # DWF calculator
         dwf_iso = DWF_iso(atom_b_iso[chunk_start*chunk_size:(chunk_start+1)*chunk_size], dr2_array)  # [N_atoms, N_HKLs]
+        print("dwf_iso: ", dwf_iso.shape)
         mask_vec = torch.all(torch.all(atom_aniso_uw[chunk_start*chunk_size:(chunk_start+1)*chunk_size] == 0.0, dim=-1), dim=-1)
+        print("mask_vec: ", mask_vec.shape)
         # Vectorized phase calculation
         # sym_oped_pos_frac = (
         #     torch.permute(torch.tensordot(R_G_tensor_stack, atom_pos_frac.T, 1), [2, 0, 1])
@@ -1550,26 +1555,34 @@ def F_protein(
         sym_oped_pos_frac = (
             torch.einsum("oxy,ay->aox", R_G_tensor_stack, atom_pos_frac[chunk_start*chunk_size:(chunk_start+1)*chunk_size]) + T_G_tensor_stack
         )
+        print("sym_oped_pos_frac: ", sym_oped_pos_frac.shape)
         sym_oped_hkl = torch.einsum("rx,oxy->roy", HKL_tensor, R_G_tensor_stack)
+        print("sym_oped_hkl: ", sym_oped_hkl.shape)
         exp_phase = 0.0
         # Loop through symmetry operations instead of fully vectorization, to reduce the memory cost
         for i in range(sym_oped_pos_frac.size(dim=1)):
+            print("\ni: ", i)
             phase_G = (
                 2
                 * np.pi
                 * torch.einsum("ax,rx->ar", sym_oped_pos_frac[:, i, :], HKL_tensor)
             )  # [N_atom, N_HKLs]
+            print("phase_G: ", phase_G.shape)
             dwf_aniso = DWF_aniso(
                 atom_aniso_uw[chunk_start*chunk_size:(chunk_start+1)*chunk_size], orth2frac_tensor, sym_oped_hkl[:, i, :]
             )  # [N_atom, N_HKLs]
+            print("dwf_aniso: ", dwf_aniso.shape)
             dwf_all = torch.where(mask_vec[:, None], dwf_iso, dwf_aniso)
+            print("dwf_all: ", dwf_all.shape)
 
             exp_phase = exp_phase + dwf_all * torch.exp(1j * phase_G)
-        print("exp_phase shape: ", exp_phase.shape)
+            print("exp_phase shape: ", exp_phase.shape)
+        
         if chunk_start == 0:
             F_calc = torch.sum(exp_phase * oc_sf, dim=0)
         else:
             F_calc += torch.sum(exp_phase * oc_sf, dim=0)
+        print("F_calc: ", F_calc.shape)
     
     print("Memory allocated after computation:", torch.cuda.memory_allocated())
     print("Max memory allocated after computation:", torch.cuda.max_memory_allocated())
