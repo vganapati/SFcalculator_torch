@@ -1521,7 +1521,7 @@ def F_protein(
     atom_b_iso,
     atom_aniso_uw,
     atom_occ,
-    chunk_size=5000, # chunks in the n_atom dimension
+    chunk_size=1000, # chunks in the n_atom dimension
 ):
     print("Memory allocated before computation:", torch.cuda.memory_allocated())
     print("Max memory allocated before computation:", torch.cuda.max_memory_allocated())
