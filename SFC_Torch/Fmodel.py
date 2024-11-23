@@ -309,7 +309,7 @@ class SFcalculator(object):
         sym_oped_frac_pos = torch.einsum("oxy,ay->aox", self.R_G_tensor_stack, frac_pos) + self.T_G_tensor_stack
         return sym_oped_frac_pos
     
-    def init_mtz(self, mtzdata, N_bins, expcolumns, set_experiment, freeflag, testset_value, dmin, random_sample=False, sample_number=1000):
+    def init_mtz(self, mtzdata, N_bins, expcolumns, set_experiment, freeflag, testset_value, dmin, random_sample=False, sample_number=500):
         """
         set mtz file for HKL list, resolution and experimental related properties
         """
@@ -1561,22 +1561,22 @@ def F_protein(
         exp_phase = 0.0
         # Loop through symmetry operations instead of fully vectorization, to reduce the memory cost
         for i in range(sym_oped_pos_frac.size(dim=1)):
-            print("\ni: ", i)
+            # print("\ni: ", i)
             phase_G = (
                 2
                 * np.pi
                 * torch.einsum("ax,rx->ar", sym_oped_pos_frac[:, i, :], HKL_tensor)
             )  # [N_atom, N_HKLs]
-            print("phase_G: ", phase_G.shape)
+            # print("phase_G: ", phase_G.shape)
             dwf_aniso = DWF_aniso(
                 atom_aniso_uw[chunk_start*chunk_size:(chunk_start+1)*chunk_size], orth2frac_tensor, sym_oped_hkl[:, i, :]
             )  # [N_atom, N_HKLs]
-            print("dwf_aniso: ", dwf_aniso.shape)
+            # print("dwf_aniso: ", dwf_aniso.shape)
             dwf_all = torch.where(mask_vec[:, None], dwf_iso, dwf_aniso)
-            print("dwf_all: ", dwf_all.shape)
+            # print("dwf_all: ", dwf_all.shape)
 
             exp_phase = exp_phase + dwf_all * torch.exp(1j * phase_G)
-            print("exp_phase shape: ", exp_phase.shape)
+            # print("exp_phase shape: ", exp_phase.shape)
         
         if chunk_start == 0:
             F_calc = torch.sum(exp_phase * oc_sf, dim=0)
